@@ -155,7 +155,7 @@ public class OrderbookRSIStrategy {
 			System.out.println("averagedBuyPressureScore:" + averagedBuyPressureScore);
 			System.out.println("averagedSellPressureScore:" + averagedSellPressureScore);
 
-			if (signalStatus == SignalStatus.CONFIRM_BUY) {
+			if (signalStatus.equals(SignalStatus.CONFIRM_BUY)) {
 				if (averagedBuyPressureScore > (averagedSellPressureScore
 						+ (averagedSellPressureScore * (buyTresholdBase / 100)))) {
 					if (!openBuyOrder) {
@@ -166,7 +166,7 @@ public class OrderbookRSIStrategy {
 				}
 			}
 
-			if (signalStatus == SignalStatus.CONFIRM_SELL) {
+			if (signalStatus.equals(SignalStatus.CONFIRM_SELL)) {
 				if (averagedSellPressureScore > (averagedBuyPressureScore
 						+ (averagedBuyPressureScore * (sellTresholdBase / 100)))) { // TODO: Adjust treshold by RSI
 					if (!openSellOrder) {
@@ -244,14 +244,6 @@ public class OrderbookRSIStrategy {
 		rsiValue = 100 - 100 / (1 + relativeStrength);
 		System.out.println("** RSI value : [ " + rsiValue + " ] **");
 
-		if (rsiValue <= rsiOversoldConfirmExpired) {
-			signalStatus = SignalStatus.NONE;
-		}
-
-		if (rsiValue >= rsiOverboughtConfirmExpired) {
-			signalStatus = SignalStatus.NONE;
-		}
-
 		if (rsiValue <= rsiOversold) {
 			signalStatus = SignalStatus.TRIGGER_BUY;
 		}
@@ -260,12 +252,20 @@ public class OrderbookRSIStrategy {
 			signalStatus = SignalStatus.TRIGGER_SELL;
 		}
 
-		if ((signalStatus == SignalStatus.TRIGGER_BUY) && (rsiValue >= rsiOversoldConfirm)) {
+		if ((signalStatus.equals(SignalStatus.TRIGGER_BUY)) && (rsiValue >= rsiOversoldConfirm)) {
 			signalStatus = SignalStatus.CONFIRM_BUY;
 		}
 
-		if ((signalStatus == SignalStatus.TRIGGER_SELL) && (rsiValue <= rsiOverboughtConfirm)) {
+		if ((signalStatus.equals(SignalStatus.TRIGGER_SELL)) && (rsiValue <= rsiOverboughtConfirm)) {
 			signalStatus = SignalStatus.CONFIRM_SELL;
+		}
+		
+		if (signalStatus.equals(SignalStatus.TRIGGER_BUY) && (rsiValue >= rsiOversoldConfirmExpired)) {
+			signalStatus = SignalStatus.NONE;
+		}
+
+		if (signalStatus.equals(SignalStatus.TRIGGER_SELL) && (rsiValue <= rsiOverboughtConfirmExpired)) {
+			signalStatus = SignalStatus.NONE;
 		}
 
 		System.out.println("Signal Status:" + signalStatus);
