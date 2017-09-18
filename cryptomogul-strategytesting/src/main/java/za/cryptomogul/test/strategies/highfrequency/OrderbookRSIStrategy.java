@@ -2,11 +2,15 @@ package za.cryptomogul.test.strategies.highfrequency;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.text.DecimalFormat;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.FileHandler;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 import org.knowm.xchange.Exchange;
 import org.knowm.xchange.ExchangeFactory;
@@ -17,7 +21,6 @@ import org.knowm.xchange.bittrex.service.BittrexMarketDataService;
 import org.knowm.xchange.currency.CurrencyPair;
 import org.knowm.xchange.dto.marketdata.OrderBook;
 import org.knowm.xchange.dto.trade.LimitOrder;
-import org.knowm.xchange.service.marketdata.MarketDataService;
 
 public class OrderbookRSIStrategy {
 
@@ -28,54 +31,86 @@ public class OrderbookRSIStrategy {
 	 * book needs to support this decision. For now many of these values are
 	 * hardcoded but in future the intention will be to run simulations to establish
 	 * optimal settings.
+	 *//**
+	 * Hello world!
+	 *
 	 */
 
-	public OrderbookRSIStrategy() {
-		super();
+	public OrderbookRSIStrategy(CurrencyPair currencyPair, String currencyPairString) throws IOException {
+		this.currencyPairString = currencyPairString;
+		this.currencyPair = currencyPair;
+		String fileName = currencyPairString + "-" + "test" + ".log";
+		initialiseLogger(fileName);
+
 	}
+
+	private void initialiseLogger(String fileName) {
+		logger = Logger.getLogger(fileName);
+		FileHandler fh;
+
+		try {
+
+			// This block configure the logger with handler and formatter
+			fh = new FileHandler(fileName);
+			logger.addHandler(fh);
+			SimpleFormatter formatter = new SimpleFormatter();
+			fh.setFormatter(formatter);
+			logger.info("test");
+
+		} catch (SecurityException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	Logger logger;
+
+	private Path path;
 
 	private Double openingBalance;
 
 	private Double currentBalance;
 
-	private CurrencyPair currencyPair = CurrencyPair.ETH_BTC;
+	private CurrencyPair currencyPair = new CurrencyPair("OMG", "BTC");
 
-	private String currencyPairString = "BTC-ETH";
+	private String currencyPairString = "BTC-OMG";
 
 	private Double tradingPercentage = 70.0; // Trades will be this percentage of current balance
 
-	private Double buyTresholdBase = 15.0; // As a percentage, buy orders needs to be stronger than sell orders by this
-											// percentage
+	private Double buyTresholdBase = 15.0; // As a percentage, buy order score needs to be stronger than sell orders by this
+											// percentage in order to confirm a triggered buy order
 	private Double sellTresholdBase = 15.0; // As a percentage, sell orders needs to be stronger than buy orders by this
-											// percentage
+											// percentage in order to confirm a triggered sell order
 
 	private Double orderBookBandSize = 5.0; // Only prices within a percentage of this value on the order book get used
 
-	private Integer orderBookCheckInterval = 85; // In seconds
+	private Integer orderBookCheckInterval = 160; // In seconds
 
-	private Integer orderBookPeriods = 7; // Use the average of the last number of order book periods in calculation,
+	private Integer orderBookPeriods = 6; // Use the average of the last number of order book periods in calculation,
 											// order
 											// books are incredibly volatile and this is intended to smooth that out
 											// somewhat.
 
 	private Integer rsiNumberOfPeriods = 14; // Number of periods to use for RSI calculation
 
-	private Integer rsiRecheckInterval = 2; // How often to recheck RSI - in minutes
+	private Integer rsiRecheckInterval = 5; // How often to recheck RSI - in minutes
 
 	private BittrexChartDataPeriodType rsiPeriod = BittrexChartDataPeriodType.FIVE_MIN; // Period interval used for
 																						// RSI calculation
-	private Integer rsiOverbought = 70;
-	private Integer rsiOverboughtConfirm = 67;
-	private Integer rsiOverboughtConfirmExpired = 58;
+	private Integer rsiOverbought = 74;
+	private Integer rsiOverboughtConfirm = 68;
+	private Integer rsiOverboughtConfirmExpired = 60;
 
-	private Integer rsiOversold = 30;
-	private Integer rsiOversoldConfirm = 33;
-	private Integer rsiOversoldConfirmExpired = 42;
+	private Integer rsiOversold = 26;
+	private Integer rsiOversoldConfirm = 32;
+	private Integer rsiOversoldConfirmExpired = 40;
 
 	private Double rsiValue = null;
 
-	private LinkedList<Double> recentBuyScores = new LinkedList<Double>();
-	private LinkedList<Double> recentSellScores = new LinkedList<Double>();
+	private LinkedList<OrderbookScoreItem> recentBuyScores = new LinkedList<OrderbookScoreItem>();
+	private LinkedList<OrderbookScoreItem> recentSellScores = new LinkedList<OrderbookScoreItem>();
 
 	private Exchange exchange;
 
@@ -98,7 +133,8 @@ public class OrderbookRSIStrategy {
 				try {
 					checkOrderBook();
 				} catch (Exception e) {
-					System.out.println("An unexpected exception has occurred during RSI calculation");
+
+					logger.info("An unexpected exception has occurred during RSI calculation, error:" + e.getMessage());
 					e.printStackTrace();
 				}
 			}
@@ -116,7 +152,8 @@ public class OrderbookRSIStrategy {
 				try {
 					calculateRSI();
 				} catch (Exception e) {
-					System.out.println("An unexpected exception has occurred during RSI calculation");
+
+					logger.info("An unexpected exception has occurred during RSI calculation, error:" + e.getMessage());
 					e.printStackTrace();
 				}
 			}
@@ -128,17 +165,18 @@ public class OrderbookRSIStrategy {
 	}
 
 	private void checkOrderBook() throws IOException, InterruptedException {
-		OrderBook orderbook = marketDataService.getOrderBook(currencyPair);
+		OrderBook orderbook = marketDataService.getOrderBook(currencyPair,10);
+		
 		BigDecimal lastPrice = marketDataService.getBittrexTicker(currencyPairString).getLast();
 		double bandPriceAdjustment = lastPrice.doubleValue() * (orderBookBandSize / 100);
-		System.out.println("Last price:" + lastPrice);
-		System.out.println("Band adjust:" + bandPriceAdjustment);
+		logger.info(("Last price:" + lastPrice));
+		logger.info(("Band adjust:" + bandPriceAdjustment));
 
 		double totalBuyPressureScore = calculateBuyPressureScore(orderbook, lastPrice, bandPriceAdjustment);
 		double totalSellPressureScore = calculateSellPressureScore(orderbook, lastPrice, bandPriceAdjustment);
 
-		System.out.println("totalBuyPressureScore:" + totalBuyPressureScore);
-		System.out.println("totalSellPressureScore:" + totalSellPressureScore);
+		logger.info(("totalBuyPressureScore:" + totalBuyPressureScore));
+		logger.info(("totalSellPressureScore:" + totalSellPressureScore));
 
 		if (recentBuyScores.size() == orderBookPeriods) {
 			recentBuyScores.removeFirst();
@@ -146,33 +184,41 @@ public class OrderbookRSIStrategy {
 		if (recentSellScores.size() == orderBookPeriods) {
 			recentSellScores.removeFirst();
 		}
-		recentBuyScores.add(totalBuyPressureScore);
-		recentSellScores.add(totalSellPressureScore);
+		recentBuyScores.add(new OrderbookScoreItem(totalBuyPressureScore, Calendar.getInstance()));
+		recentSellScores.add(new OrderbookScoreItem(totalSellPressureScore, Calendar.getInstance()));
 
 		if ((recentBuyScores.size() == orderBookPeriods) && (recentSellScores.size() == orderBookPeriods)) {
 			double averagedBuyPressureScore = calculateAverageScore(recentBuyScores);
 			double averagedSellPressureScore = calculateAverageScore(recentSellScores);
-			System.out.println("averagedBuyPressureScore:" + averagedBuyPressureScore);
-			System.out.println("averagedSellPressureScore:" + averagedSellPressureScore);
+			logger.info(("averagedBuyPressureScore:" + averagedBuyPressureScore));
+			logger.info(("averagedSellPressureScore:" + averagedSellPressureScore));
 
 			if (signalStatus.equals(SignalStatus.CONFIRM_BUY)) {
+				logger.info(("In confirm buy signal status, checking order book, averagedBuyPressureScore:"
+						+ averagedBuyPressureScore + ", needs to be greater than modified sell pressure score of :"
+						+ (averagedSellPressureScore + (averagedSellPressureScore * (buyTresholdBase / 100)))));
 				if (averagedBuyPressureScore > (averagedSellPressureScore
 						+ (averagedSellPressureScore * (buyTresholdBase / 100)))) {
 					if (!openBuyOrder) {
-						System.out.println("Executing buy order@price:" + lastPrice);
+						logger.info(("Executing buy order@price:" + lastPrice));
 						openBuyOrder = true;
 						openSellOrder = false;
+						signalStatus = SignalStatus.NONE;
 					}
 				}
 			}
 
 			if (signalStatus.equals(SignalStatus.CONFIRM_SELL)) {
+				logger.info(("In confirm sell signal status, checking order book, averagedSellPressureScore:"
+						+ averagedSellPressureScore + ", needs to be greater than modified buy pressure score of :"
+						+ (averagedBuyPressureScore + (averagedBuyPressureScore * (sellTresholdBase / 100)))));
 				if (averagedSellPressureScore > (averagedBuyPressureScore
 						+ (averagedBuyPressureScore * (sellTresholdBase / 100)))) { // TODO: Adjust treshold by RSI
 					if (!openSellOrder) {
-						System.out.println("Executing sell order@price:" + lastPrice);
+						logger.info(("Executing sell order@price:" + lastPrice));
 						openSellOrder = true;
 						openBuyOrder = false;
+						signalStatus = SignalStatus.NONE;
 					}
 				}
 			}
@@ -184,18 +230,26 @@ public class OrderbookRSIStrategy {
 
 	}
 
-	private double calculateAverageScore(LinkedList<Double> recentScores) {
+	private double calculateAverageScore(LinkedList<OrderbookScoreItem> recentScores) {
+
 		double total = 0;
-		for (Double amount : recentScores) {
-			total += amount;
+		Integer count = 0;
+		
+		for (OrderbookScoreItem scoreItem : recentScores) {
+			count++;
+			double percMod = count.doubleValue() / orderBookPeriods.doubleValue();
+			double modifiedScore = (percMod * scoreItem.getScoreAmount());
+			
+			total += modifiedScore;
 		}
 		return total / recentScores.size();
 	}
 
-	private double calculateSellPressureScore(OrderBook orderbook, BigDecimal lastPrice, double bandPriceAdjustment) {
+	private double calculateSellPressureScore(OrderBook orderbook, BigDecimal lastPrice, double bandPriceAdjustment)
+			throws IOException {
 		double total = 0;
 		double maxPrice = lastPrice.doubleValue() + bandPriceAdjustment;
-		System.out.println("maxPrice sellPressure:" + maxPrice);
+		logger.info(("maxPrice sellPressure:" + maxPrice));
 		for (LimitOrder order : orderbook.getAsks()) {
 			if (order.getLimitPrice().doubleValue() < maxPrice) {
 				double exponentialPercModifier = ((maxPrice - order.getLimitPrice().doubleValue())
@@ -209,10 +263,11 @@ public class OrderbookRSIStrategy {
 		return total;
 	}
 
-	private double calculateBuyPressureScore(OrderBook orderbook, BigDecimal lastPrice, double bandPriceAdjustment) {
+	private double calculateBuyPressureScore(OrderBook orderbook, BigDecimal lastPrice, double bandPriceAdjustment)
+			throws IOException {
 		double total = 0;
 		double minPrice = lastPrice.doubleValue() - bandPriceAdjustment;
-		System.out.println("minPrice buyPressure:" + minPrice);
+		logger.info(("minPrice buyPressure:" + minPrice));
 		for (LimitOrder order : orderbook.getBids()) {
 			if (order.getLimitPrice().doubleValue() > minPrice) {
 				double exponentialPercModifier = ((order.getLimitPrice().doubleValue() - minPrice)
@@ -231,45 +286,54 @@ public class OrderbookRSIStrategy {
 		ArrayList<BittrexChartData> chartData = null;
 		try {
 			chartData = marketDataService.getBittrexChartData(currencyPair, rsiPeriod);
+			List<BittrexChartData> chartDataTrimmed = chartData
+					.subList(Math.max(chartData.size() - rsiNumberOfPeriods, 0), chartData.size());
+			Double averageUpPeriodGain = getUpPeriodGain(chartDataTrimmed);
+			Double averageDownPeriodLoss = getDownPeriodLoss(chartDataTrimmed);
+			Double relativeStrength = averageUpPeriodGain / averageDownPeriodLoss;
+			rsiValue = 100 - 100 / (1 + relativeStrength);
+			logger.info(("** RSI value : [ " + rsiValue + " ] **"));
+
+			if (rsiValue <= rsiOversold) {
+				if (!openBuyOrder) {
+					signalStatus = SignalStatus.TRIGGER_BUY;
+				}
+			}
+
+			if (rsiValue >= rsiOverbought) {
+				if (!openSellOrder) {
+					signalStatus = SignalStatus.TRIGGER_SELL;
+				}
+			}
+
+			if ((signalStatus.equals(SignalStatus.TRIGGER_BUY)) && (rsiValue >= rsiOversoldConfirm)) {
+				if (!openBuyOrder) {
+					signalStatus = SignalStatus.CONFIRM_BUY;
+				}
+			}
+
+			if ((signalStatus.equals(SignalStatus.TRIGGER_SELL)) && (rsiValue <= rsiOverboughtConfirm)) {
+				if (!openSellOrder) {
+					signalStatus = SignalStatus.CONFIRM_SELL;
+				}
+			}
+
+			if (signalStatus.equals(SignalStatus.TRIGGER_BUY) && (rsiValue >= rsiOversoldConfirmExpired)) {
+				signalStatus = SignalStatus.NONE;
+			}
+
+			if (signalStatus.equals(SignalStatus.TRIGGER_SELL) && (rsiValue <= rsiOverboughtConfirmExpired)) {
+				signalStatus = SignalStatus.NONE;
+			}
+
+			logger.info(("Signal Status:" + signalStatus));
+			TimeUnit.MINUTES.sleep(rsiRecheckInterval);
 		} catch (Exception e) {
-			System.out.println("An unexpected exception has occurred during the bittrex api call");
+			logger.info("An unexpected exception has occurred during the bittrex api call");
 			e.printStackTrace();
 			TimeUnit.MINUTES.sleep(rsiRecheckInterval);
 		}
-		List<BittrexChartData> chartDataTrimmed = chartData.subList(Math.max(chartData.size() - rsiNumberOfPeriods, 0),
-				chartData.size());
-		Double averageUpPeriodGain = getUpPeriodGain(chartDataTrimmed);
-		Double averageDownPeriodLoss = getDownPeriodLoss(chartDataTrimmed);
-		Double relativeStrength = averageUpPeriodGain / averageDownPeriodLoss;
-		rsiValue = 100 - 100 / (1 + relativeStrength);
-		System.out.println("** RSI value : [ " + rsiValue + " ] **");
 
-		if (rsiValue <= rsiOversold) {
-			signalStatus = SignalStatus.TRIGGER_BUY;
-		}
-
-		if (rsiValue >= rsiOverbought) {
-			signalStatus = SignalStatus.TRIGGER_SELL;
-		}
-
-		if ((signalStatus.equals(SignalStatus.TRIGGER_BUY)) && (rsiValue >= rsiOversoldConfirm)) {
-			signalStatus = SignalStatus.CONFIRM_BUY;
-		}
-
-		if ((signalStatus.equals(SignalStatus.TRIGGER_SELL)) && (rsiValue <= rsiOverboughtConfirm)) {
-			signalStatus = SignalStatus.CONFIRM_SELL;
-		}
-		
-		if (signalStatus.equals(SignalStatus.TRIGGER_BUY) && (rsiValue >= rsiOversoldConfirmExpired)) {
-			signalStatus = SignalStatus.NONE;
-		}
-
-		if (signalStatus.equals(SignalStatus.TRIGGER_SELL) && (rsiValue <= rsiOverboughtConfirmExpired)) {
-			signalStatus = SignalStatus.NONE;
-		}
-
-		System.out.println("Signal Status:" + signalStatus);
-		TimeUnit.MINUTES.sleep(rsiRecheckInterval);
 		calculateRSI();
 
 	}
