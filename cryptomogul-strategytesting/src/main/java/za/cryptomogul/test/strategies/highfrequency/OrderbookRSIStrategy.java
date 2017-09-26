@@ -282,8 +282,7 @@ public class OrderbookRSIStrategy {
 				logger.info(("In confirm buy signal status, checking order book, orderBookMomentumIndicator:"
 						+ orderBookMomentumIndicator + ", needs to be greater than omiBuyScoreConfirm of :"
 						+ omiBuyScoreConfirm));
-				if (orderBookMomentumIndicator > omiBuyScoreConfirm) {
-					
+				if (orderBookMomentumIndicator > omiBuyScoreConfirm) {		
 					if (!openBuyOrder) {
 						BigDecimal lastPrice = marketDataService.getBittrexTicker(currencyPairString).getLast();
 						logger.info(("Executing buy order@price:" + lastPrice));
